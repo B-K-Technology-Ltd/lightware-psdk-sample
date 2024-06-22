@@ -1,6 +1,6 @@
 //
 // Created by LightWare.
-// LW20/c Interface
+// SF30/D Interface
 //
 
 #pragma once
@@ -41,7 +41,7 @@ public:
             std::cerr << "USB device opened on FD: " << _fd << std::endl;
 
             _threadRunning.store(true, std::memory_order_relaxed);
-            _runningThread = std::thread(&LW20::loop, this);
+            _runningThread = std::thread(&SF30D::loop, this);
         }
     }
 
@@ -50,7 +50,7 @@ public:
         close(_fd);
     }
 
-    int latestDistance() {
+    float latestDistance() {
         return this->_latestDistance.load(std::memory_order_relaxed);
     }
 
@@ -58,28 +58,52 @@ private:
     std::atomic<bool> _threadRunning{false};
     std::thread _runningThread;
 
-    const char *_device = "/dev/ttyUSB0";
-    int _fd;
+    const char *_device = "/dev/ttyACM0"; // To figure this out, plug the device on the Pi then immediately run the `dmesg` command to see which device was assigned.
+    int _fd = -1;
 
-    std::atomic<int> _latestDistance{0}; // in cm
+    std::atomic<float> _latestDistance{0.0}; // in m
 
+    int32_t readData(uint8_t *Buffer, int32_t BufferSize) {
+        if (_fd < 0) {
+            std::cout << "Can't read from null coms";
+            return -1;
+        }
+
+        errno = 0;
+        int readBytes = read(_fd, Buffer, BufferSize);
+
+        return readBytes;
+    }
+
+    float getNextReading() {
+        char line[64];
+        int lineSize = 0;
+
+        while (true) {
+            char recvData;
+            if (this->readData((uint8_t*)&recvData, 1) == 1) {
+                if (recvData == '\n') {
+                    line[lineSize] = 0;
+                    float distance = atof(line);
+                    return distance;
+                } else if (isdigit(recvData) || recvData == '.') {
+                    line[lineSize++] = recvData;
+
+                    if (lineSize == sizeof line) {
+                        lineSize = 0;
+                    }
+                }
+            }
+        }
+    }
 
     // Loop running in background thread.
     void loop() {
         while (_threadRunning.load(std::memory_order_relaxed))  {
-            unsigned char byte[2];
-            int res = read(_fd, byte, 2);
+            float distanceRead = this->getNextReading();
+            std::cout << "[" << _device << "] Distance: " << distanceRead << " m" << std::endl;
 
-            if (res == -1) {
-                std::cout << "USB Device " << _device << " was not available" << std::endl;
-            } else {
-                int distanceRead = (byte[0] << 8) | byte[1];
-                std::cout << "[" << _device << "] Distance: " << distanceRead << "cm" << std::endl;
-
-                _latestDistance.store(distanceRead, std::memory_order_relaxed);
-            }
-
-            usleep(250);
+            _latestDistance.store(distanceRead, std::memory_order_relaxed);
         }
     }
 };

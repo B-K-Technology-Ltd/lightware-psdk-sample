@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Project Def
-project(lander
+project(positioner
         DESCRIPTION "Moving Platform Lander"
         LANGUAGES CXX C
         VERSION 1.0)

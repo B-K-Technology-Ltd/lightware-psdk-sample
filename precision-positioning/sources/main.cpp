@@ -17,8 +17,8 @@ void clean_exit(int code) {
     if (vehicle != NULL) {
         delete vehicle;
     }
-    if (sensorArray != NULL) {
-        delete sensorArray;
+    if (sensor != NULL) {
+        delete sensor;
     }
     std::cout << "Exiting..." << std::endl;
     exit(code);
@@ -34,18 +34,17 @@ int main(int argc, char **argv) {
 
     // Check loop
     bool active = true;
-    int closeEnough = 50; // in cm; 50cm
+    float closeEnough = 0.5; // in m; 50cm
 
     while (active) {
-        int currentDistance = sensor->latestDistance();
+        float currentDistance = sensor->latestDistance();
 
         // Condition to determine a landing opportunity.
-        if (currentDistance <= closeEnough) {
+        if (currentDistance <= closeEnough && currentDistance > 0 && currentDistance < 250) { // 0 and 250 are false reads
             // We exited the loop flagging we aren't checking to land, so we are landing.
-            std::cout << "Stopping..." << std::endl;
+            std::cout << "Stopping Vehicle..." << std::endl;
 
             vehicle->emergencyBreak();
-            break;
         }
         usleep(250);
     }
