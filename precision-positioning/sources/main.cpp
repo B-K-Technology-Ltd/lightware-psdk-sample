@@ -10,20 +10,6 @@
 Application *vehicle = NULL;
 SF30D *sensor = NULL;
 
-void clean_exit(int code) {
-    // Stop anything that needs stopping.
-    // Clean anything that needs cleaning.
-
-    if (vehicle != NULL) {
-        delete vehicle;
-    }
-    if (sensor != NULL) {
-        delete sensor;
-    }
-    std::cout << "Exiting..." << std::endl;
-    exit(code);
-}
-
 int main(int argc, char **argv) {
     // Create the vehicle instance to connect
     // We are reusing the Application object from DJI's sample for clarity only.
@@ -44,7 +30,7 @@ int main(int argc, char **argv) {
             // We exited the loop flagging we aren't checking to land, so we are landing.
             std::cout << "Stopping Vehicle..." << std::endl;
 
-            vehicle->emergencyBreak();
+            vehicle->emergencyBreak(); // Stop the vehicle right now.
         }
         usleep(250);
     }
