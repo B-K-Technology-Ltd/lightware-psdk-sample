@@ -1,32 +1,54 @@
 cmake_minimum_required(VERSION 3.10)
 
-# Project Def
+# Project Definition
 project(positioner
-        DESCRIPTION "Moving Platform Lander"
+        DESCRIPTION "Precision Positioning"
         LANGUAGES CXX C
         VERSION 1.0)
 
-set(CMAKE_C_FLAGS "-pthread -std=gnu99")
-set(CMAKE_CXX_FLAGS "-std=c++11 -pthread")
-set(CMAKE_EXE_LINKER_FLAGS "-pthread")
-set(CMAKE_C_COMPILER "aarch64-linux-gnu-gcc")
-set(CMAKE_CXX_COMPILER "aarch64-linux-gnu-g++")
-add_definitions(-D_GNU_SOURCE)
+# Detect OS and Set Compiler & Flags
+if(APPLE)
+    message(STATUS "Configuring for macOS")
 
-set(TOOLCHAIN_NAME aarch64-linux-gnu-gcc)
+    set(CMAKE_C_COMPILER "/usr/bin/clang")
+    set(CMAKE_CXX_COMPILER "/usr/bin/clang++")
 
-add_definitions(-DPLATFORM_ARCH_aarch64=1)
-add_definitions(-DSYSTEM_ARCH_LINUX=1)
+    set(CMAKE_C_FLAGS "-lpthread")
+    set(CMAKE_CXX_FLAGS "-std=c++11 -lpthread")
+    set(CMAKE_EXE_LINKER_FLAGS "-lpthread")
 
+    add_definitions(-DSYSTEM_ARCH_MACOS=1)
 
-# Convenience
+elseif(UNIX)
+    message(STATUS "Configuring for Linux")
+
+    set(CMAKE_C_COMPILER "aarch64-linux-gnu-gcc")
+    set(CMAKE_CXX_COMPILER "aarch64-linux-gnu-g++")
+
+    set(CMAKE_C_FLAGS "-pthread -std=gnu99")
+    set(CMAKE_CXX_FLAGS "-std=c++11 -pthread")
+    set(CMAKE_EXE_LINKER_FLAGS "-pthread")
+
+    add_definitions(-DSYSTEM_ARCH_LINUX=1 -D_GNU_SOURCE)
+endif()
+
+# Set Toolchain-Specific Library Paths
+if(APPLE)
+    set(TOOLCHAIN_NAME "macos")
+    set(LIBRARY_EXTENSION "dylib")
+elseif(UNIX)
+    set(TOOLCHAIN_NAME "aarch64-linux-gnu-gcc")
+    set(LIBRARY_EXTENSION "a")
+endif()
+
+# Convenience Variables
 set(SRC_DIR ${CMAKE_CURRENT_LIST_DIR}/sources)
 set(LIB_DIR ${CMAKE_CURRENT_LIST_DIR}/libraries)
 
-# End Product
+# Define Executable
 add_executable(${PROJECT_NAME} ${SRC_DIR}/main.cpp)
 
-# Includes
+# Include Directories
 target_include_directories(${PROJECT_NAME} PRIVATE ${SRC_DIR})
 target_include_directories(${PROJECT_NAME} PRIVATE ${LIB_DIR}/psdk_lib/include)
 target_include_directories(${PROJECT_NAME} PRIVATE ${SRC_DIR}/dji/osal)
@@ -34,102 +56,81 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${SRC_DIR}/dji/hal)
 target_include_directories(${PROJECT_NAME} PRIVATE ${SRC_DIR}/dji/application)
 target_include_directories(${PROJECT_NAME} PRIVATE ${SRC_DIR}/lightware)
 
-# Sources
+# Source Files
 file(GLOB_RECURSE DJI_OSAL_SRC ${SRC_DIR}/dji/osal/*.c*)
 file(GLOB_RECURSE DJI_HAL_SRC ${SRC_DIR}/dji/hal/*.c*)
 file(GLOB_RECURSE DJI_APP_SRC ${SRC_DIR}/dji/application/*.c*)
 file(GLOB_RECURSE LIGHTWARE_SRC ${SRC_DIR}/lightware/*.c*)
 
 target_sources(${PROJECT_NAME} PRIVATE
-                ${DJI_OSAL_SRC}
-                ${DJI_HAL_SRC}
-                ${DJI_APP_SRC}
-                ${LIGHTWARE_SRC}
-		)
+        ${DJI_OSAL_SRC}
+        ${DJI_HAL_SRC}
+        ${DJI_APP_SRC}
+        ${LIGHTWARE_SRC}
+)
 
-# Libraries
+# Link PayloadSDK
+target_link_libraries(${PROJECT_NAME} ${LIB_DIR}/psdk_lib/lib/${TOOLCHAIN_NAME}/libpayloadsdk.${LIBRARY_EXTENSION})
 
-# PayloadSDK
-target_link_libraries(${PROJECT_NAME} ${LIB_DIR}/psdk_lib/lib/${TOOLCHAIN_NAME}/libpayloadsdk.a)
-message(STATUS "Linking PayloadSDK: ${LIB_DIR}/psdk_lib/lib/${TOOLCHAIN_NAME}/libpayloadsdk.a")
+# Dependency Paths (macOS uses Homebrew, Linux uses standard paths)
+if(APPLE)
+    set(DEP_PATHS "/usr/local" "/opt/homebrew")
+else()
+    set(DEP_PATHS "/usr" "/usr/local")
+endif()
 
-# PayloadSDK Dependencies
-set(CMAKE_MODULE_PATH ${SRC_DIR}/dji/3rdparty)
-
-# Try to see if user has OpenCV installed
-# if yes, default callback will display the image
-find_package(OpenCV QUIET)
+# Find and Link OpenCV
+find_package(OpenCV REQUIRED PATHS ${DEP_PATHS}/opt/opencv)
 if (OpenCV_FOUND)
-    message("\n${PROJECT_NAME}...")
-    message(STATUS "Found OpenCV installed in the system, will use it to display image in AdvancedSensing APIs")
-    message(STATUS " - Includes: ${OpenCV_INCLUDE_DIRS}")
-    message(STATUS " - Libraries: ${OpenCV_LIBRARIES}")
-    add_definitions(-DOPEN_CV_INSTALLED)
-else ()
-    message(STATUS "Did not find OpenCV in the system, image data is inside RecvContainer as raw data")
-endif ()
+    message(STATUS "Found OpenCV: ${OpenCV_INCLUDE_DIRS}")
+    target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCV_INCLUDE_DIRS})
+    target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
+endif()
 
-find_package(FFMPEG REQUIRED)
+# Find and Link FFMPEG
+#find_package(FFMPEG REQUIRED PATHS ${DEP_PATHS}/opt/ffmpeg)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED libavcodec libavformat libavutil libswscale libswresample)
+
 if (FFMPEG_FOUND)
-    message(STATUS "Found FFMPEG installed in the system")
-    message(STATUS " - Includes: ${FFMPEG_INCLUDE_DIR}")
-    message(STATUS " - Libraries: ${FFMPEG_LIBRARIES}")
-
-    EXECUTE_PROCESS(COMMAND ffmpeg -version
-            OUTPUT_VARIABLE ffmpeg_version_output
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    string(REGEX MATCH "version.*Copyright" ffmpeg_version_line ${ffmpeg_version_output})
-    string(REGEX MATCH " .* " ffmpeg_version ${ffmpeg_version_line})
-    string(REGEX MATCH "^ 5.*$" ffmpeg_major_version ${ffmpeg_version})
-
-    if (HEAD${ffmpeg_major_version} STREQUAL "HEAD")
-        message(STATUS " - Version: ${ffmpeg_version}")
-    else ()
-        message(FATAL_ERROR " - Not support FFMPEG version: ${ffmpeg_major_version}, please install 4.x.x instead.")
-    endif ()
-
+    message(STATUS "Found FFMPEG: ${FFMPEG_LIBRARIES}")
     target_link_libraries(${PROJECT_NAME} ${FFMPEG_LIBRARIES})
-    include_directories(${FFMPEG_INCLUDE_DIR})
-    add_definitions(-DFFMPEG_INSTALLED)
-else ()
-    message(STATUS "Cannot Find FFMPEG")
-endif (FFMPEG_FOUND)
+else()
+    message(STATUS "FFMPEG not found, video processing might be disabled.")
+endif()
 
-include_directories(${CMAKE_CURRENT_LIST_DIR}/libraries/psdk_lib/include)
+# Find and Link OPUS
+#find_package(OPUS REQUIRED PATHS ${DEP_PATHS}/opt/opus)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(OPUS REQUIRED opus)
 
-find_package(OPUS REQUIRED)
 if (OPUS_FOUND)
-    message(STATUS "Found OPUS installed in the system")
-    message(STATUS " - Includes: ${OPUS_INCLUDE_DIR}")
-    message(STATUS " - Libraries: ${OPUS_LIBRARY}")
+    message(STATUS "Found OPUS: ${OPUS_LIBRARY}")
+    target_link_libraries(${PROJECT_NAME} ${OPUS_LIBRARY})
+else()
+    message(STATUS "OPUS not found, audio features might be disabled.")
+endif()
 
-    add_definitions(-DOPUS_INSTALLED)
-    target_link_libraries(${PROJECT_NAME} /usr/local/lib/libopus.a)
-else ()
-    message(STATUS "Cannot Find OPUS")
-endif (OPUS_FOUND)
+# Find and Link LIBUSB
+#find_package(LIBUSB REQUIRED PATHS ${DEP_PATHS}/opt/libusb)
 
-find_package(LIBUSB REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
+
+
 if (LIBUSB_FOUND)
-    message(STATUS "Found LIBUSB installed in the system")
-    message(STATUS " - Includes: ${LIBUSB_INCLUDE_DIR}")
-    message(STATUS " - Libraries: ${LIBUSB_LIBRARY}")
-
-    add_definitions(-DLIBUSB_INSTALLED)
+    message(STATUS "Found LIBUSB: ${LIBUSB_LIBRARY}")
     target_link_libraries(${PROJECT_NAME} usb-1.0)
-else ()
-    message(STATUS "Cannot Find LIBUSB")
-endif (LIBUSB_FOUND)
+else()
+    message(STATUS "LIBUSB not found, USB features might be disabled.")
+endif()
 
+# Set Executable Output Directory
 if (NOT EXECUTABLE_OUTPUT_PATH)
     set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR}/bin)
-endif ()
+endif()
 
+# Link Math Library
 target_link_libraries(${PROJECT_NAME} m)
-
-target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCV_INCLUDE_DIRS})
-if (OpenCV_FOUND)
-    target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
-endif ()
